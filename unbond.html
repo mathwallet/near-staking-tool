@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>解委托</title>
+  <meta id="i18n_pagename" content="message">
+  <meta name="viewport"
+        content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <link rel="shortcut icon" type="image/x-icon" href="./img/favicon.ico"/>
+  <link rel="stylesheet" type="text/css" href="./css/materialize.min.css">
+  <link rel="stylesheet" type="text/css" href="./css/common.css">
+  <script src="./js/jquery-3.2.1.min.js"></script>
+  <script src="./js/vue.min.js"></script>
+  <script src="./js/common.js"></script>
+  <script src='./js/sha256.min.js'></script>
+</head>
+<body>
+<div class="mds-group">
+  <link rel="stylesheet" type="text/css" href="./css/iris.css">
+  <section class="iris" v-cloak>
+    <div class="top center-align">
+      <h4 class="title">{{validatorAddr ? validatorAddr : ''}}</h4>
+    </div>
+    <div class="iris-info">
+      <div class="card iris-form">
+        <h4 class="i18n" data-properties="iris_undelegate" data-ptype="text"></h4>
+        <div class="form-group">
+          <!-- 委托量 -->
+          <input type="number" class="i18n" data-properties="iris_undelegate_amount_pl" data-ptype="placeholder"
+                 v-model="undelegate_amount">
+          <span>NEAR</span>
+        </div>
+        <!-- 全部解委托 -->
+        <div class="right i18n" data-properties="iris_undelegate_amount_all" data-ptype="text"
+             @click="undelegateAll"></div>
+        <!-- 可用份额 -->
+        <p><span class="i18n" data-properties="iris_available_share" data-ptype="text"></span>
+          {{delegationAmount ? addCommas(delegationAmount):0}} NEAR</p>
+      </div>
+      <a href="javascript:;" class="iris-btn i18n unbond_btn" @click="unbond" :class="disable?'grey':''"
+         data-properties="iris_undelegate" data-ptype="text"></a>
+      <ul class="tips">
+        <li>{{jQuery.i18n.prop('dapp_delegate_tip').replace('%d', lockDay)}}</li>
+      </ul>
+    </div>
+  </section>
+</div>
+<script src="./js/jquery.i18n.properties.js"></script>
+<script src="./js/language.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/nearprotocol/near-api-js/dist/near-api-js.js"></script>
+<script src='./js/bignumber.min.js'></script>
+<script type="text/javascript">
+  var pageData = {
+    disable: false,
+    undelegate_amount: 0,
+    validatorAddr: '',
+    delegationAmount: 0,
+    delegation: {
+      amount: 0
+    },
+    unbonding: [],
+    account: '',
+    masterAccountId: 'lockup.near',
+    nodeUrl: 'https://api-near.dokia.cloud',
+    lockup: 'false',
+    gasBase: 25000000000000,
+    publicKey: '',
+    lockDay: 2,
+    decimal: 24
+  };
+  $(function () {
+    var vue = new Vue({
+      el: '.mds-group',
+      data: pageData,
+      created() {
+        initLang();
+        this.validatorAddr = getQueryVariable('validator');
+        this.lockup = getQueryVariable('data');
+        if (!this.validatorAddr) {
+          alert('Error');
+          window.history.back();
+        }
+        this.initExtension();
+      },
+      mounted() {
+        // language js
+        initLang();
+      },
+      methods: {
+        // 全部解委托
+        undelegateAll: function () {
+          this.undelegate_amount = new BigNumber(this.delegationAmount).div(Math.pow(10, 24)).toFixed();
+        },
+        // 插件登录
+        async login() {
+          return await initNearApi().then(async (nearApi) => {
+            return await nearApi.login({}).then((account) => {
+              return account;
+            });
+          })
+        },
+        getLockAccountId(account) {
+          return sha256(account).toString('hex').slice(0, 40) + '.' + this.masterAccountId;
+        },
+        // 获取当前抵押
+        async getCurrentValidator() {
+          return await $.get(this.nodeUrl + '/api/v1/validators')
+            .then(list => {
+              let validatorDetail = list.filter((item) => {
+                return item.account_id == this.validatorAddr;
+              });
+              if (validatorDetail.length > 0) {
+                return validatorDetail[0];
+              }
+              return null;
+            });
+        },
+        async getDelegation() {
+          let acc = this.lockup == "true" ? this.lockupAccountId : this.account;
+          await this.getAccountDelegations(acc).then((res) => {
+            if (res) {
+              let currentDeleg = res.delegations.filter((delegation) => {
+                return delegation.validator_account_id == this.validatorAddr;
+              });
+              if (currentDeleg.length > 0) {
+                this.delegationAmount = currentDeleg[0].staked_balance;
+              }
+            }
+          }).catch(err => {
+            console.log(err);
+          });
+        },
+        async getAccountDelegations(account) {
+          let url = 'https://api-near.dokia.cloud/api/v1/account/' + account;
+          return await $.get(url).then((result) => {
+            if (result) {
+              return result;
+            }
+          }).catch(() => {
+            return null;
+          })
+        },
+        async initExtension() {
+          return await this.login().then(async (account) => {
+            this.account = account.accountId;
+            this.publicKey = account.publicKey;
+            this.lockupAccountId = this.getLockAccountId(this.account);
+            connectToPoolDetailsContract().then(() => {
+              this.getCurrentValidator().then((validator) => {
+                if (validator) {
+                  this.getDelegation();
+                }
+              });
+            });
+          })
+        },
+        // 获取nonce和blockhash
+        async getNonceAndBlockHash() {
+          const accessKeyResponse = await window.near.connection.provider.query(
+            `access_key/${this.account}/${this.publicKey}`,
+            ""
+          );
+          let blockHash = nearApi.utils.serialize.base_decode(
+            accessKeyResponse.block_hash
+          );
+          let nonce = accessKeyResponse.nonce;
+          return {blockHash, nonce};
+        },
+        // 创建并发送交易
+        async createAndSendTransaction(receiverId, actions) {
+          let {blockHash, nonce} = await this.getNonceAndBlockHash();
+          let transaction = await nearApi.transactions.createTransaction(
+            this.account,
+            nearApi.utils.PublicKey.fromString(this.publicKey),
+            receiverId,
+            nonce + 1,
+            actions,
+            blockHash
+          );
+          const [
+            hash,
+            signedTransaction,
+          ] = await nearApi.transactions.signTransaction(
+            transaction,
+            window.nearWalletApi.signer,
+            this.account
+          );
+          // Send
+          const executionOutcome = await window.near.connection.provider.sendTransaction(
+            signedTransaction
+          );
+          console.log(executionOutcome)
+          return JSON.stringify(executionOutcome.transaction_outcome.id);
+        },
+        unbond() {
+          if (!this.undelegate_amount) {
+            alert('请输入解委托数量');
+            return false;
+          }
+          let amount = nearApi.utils.format.parseNearAmount(this.undelegate_amount);
+          let actions = [];
+          let delegationAmountFormat = new BigNumber(this.delegationAmount).div(Math.pow(10, this.decimal)).toNumber();
+          if (parseFloat(this.undelegate_amount) >= delegationAmountFormat) {
+            // 全部解委托
+            actions = [
+              nearApi.transactions.functionCall('unstake_all', {}, this.gasBase * 5, '0')
+            ];
+          } else {
+            // 解委托部分
+            actions = [
+              nearApi.transactions.functionCall('unstake', {amount}, this.gasBase * 5, '0')
+            ];
+          }
+          if (this.lockup == 'true') {
+            this.createAndSendTransaction(this.lockupAccountId, actions).then((hash) => {
+              if (hash){
+                console.log(hash);
+                alert('Success');
+                window.location.href = "./index.html";
+              }
+            }).catch(e => {
+              alert('Fail');
+              console.log(e);
+            })
+          } else {
+            this.createAndSendTransaction(this.validatorAddr, actions).then((hash) => {
+              if (hash){
+                console.log(hash);
+                alert('已提交');
+                window.location.href = "./index.html";
+              }
+
+            }).catch(e => {
+              alert('Fail');
+              console.log(e);
+            })
+          }
+        },
+      }
+    });
+  });
+</script>
+</body>
+</html>

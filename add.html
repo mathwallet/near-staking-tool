@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>新增委托</title>
+  <meta id="i18n_pagename" content="message">
+  <meta name="viewport"
+        content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <link rel="shortcut icon" type="image/x-icon" href="./img/favicon.ico"/>
+  <link rel="stylesheet" type="text/css" href="./css/materialize.min.css">
+  <link rel="stylesheet" type="text/css" href="./css/common.css">
+  <script src="./js/jquery-3.2.1.min.js"></script>
+  <script src="./js/vue.min.js"></script>
+  <script src="./js/common.js"></script>
+  <script src='./js/sha256.min.js'></script>
+</head>
+<body>
+<div class="mds-group">
+  <link rel="stylesheet" type="text/css" href="./css/iris.css">
+  <section class="iris" v-cloak>
+    <div class="top center-align">
+      <h4 class="title">{{validatorAddress ? validatorAddress : ''}}</h4>
+    </div>
+    <div class="iris-info">
+      <div class="card iris-form">
+        <h4 class="i18n" data-properties="iris_delegated_amount" data-ptype="text"></h4>
+        <div class="form-group">
+          <!-- 委托量 -->
+          <input class="select-account" v-model="selectedAccountContent" disabled>
+          <span class="i18n text-blue-12" data-properties='select_account' @click="accountModal=true"
+                data-ptype="text"></span>
+        </div>
+      </div>
+
+      <div class="card iris-form">
+        <h4 class="i18n" data-properties="iris_delegated_amount" data-ptype="text"></h4>
+        <div class="form-group">
+          <!-- 委托量 -->
+          <input type="number" class="i18n select-account" data-properties="iris_delegated_pl" data-ptype="placeholder"
+                 v-model="delegate_amount">
+          <span>NEAR</span>
+        </div>
+        <!-- 全部委托 -->
+        <div class="right i18n" data-properties="iris_all_commission" data-ptype="text" @click="delegateAll"></div>
+        <!-- 可用份额 -->
+        <p><span class="i18n" data-properties="iris_available_share" data-ptype="text"></span>
+          {{addCommas(accountObj[selectedAccount])}} NEAR
+        </p>
+      </div>
+      <a href="javascript:;" class="iris-btn i18n new_delegate_btn" @click="delegate"
+         data-properties="iris_new_delegate"
+         data-ptype="text"></a>
+      <ul class="tips">
+        <li>
+          {{jQuery.i18n.prop('dapp_delegate_tip').replace('%d', lockDay)}}
+        </li>
+      </ul>
+    </div>
+    <!-- 选择弹窗 -->
+    <div v-show="accountModal" @touchmove.prevent="" id="delegateAccount" class="modal bottom-modal">
+      <h4>
+        <span class="right i18n" data-properties='deleteCancel' data-ptype="text" @click="accountModal=false"></span>
+        <span class="i18n" data-properties='select_account' data-ptype="text"></span>
+      </h4>
+      <ul class="list">
+        <li @click="selectAccount('account')" :class="{active:selectedAccount=='account'}">
+          <h5>{{account}} (<span class="i18n" data-properties='near_delegate_account' data-ptype="text"></span>)</h5>
+          <p><span class="i18n" data-properties='iris_available_share' data-ptype="text"></span> <span>{{addCommas(accountObj['account'])}} NEAR</span>
+          </p>
+        </li>
+        <li @click="selectAccount('lockup')" :class="{active:selectedAccount=='lockup'}">
+          <h5>{{lockupAccountEllipsis(lockupAccountId)}} (<span class="i18n" data-properties='near_delegate_lockup'
+                                                                data-ptype="text"></span>)</h5>
+          <p><span class="i18n" data-properties='iris_available_share' data-ptype="text"></span> <span>{{addCommas(accountObj['lockup'])}} NEAR</span>
+          </p>
+        </li>
+      </ul>
+    </div>
+    <div class="modal-mask" @touchmove.prevent="" v-show="accountModal" @click="accountModal=false"></div>
+  </section>
+</div>
+<script src="./js/bignumber.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/nearprotocol/near-api-js/dist/near-api-js.js"></script>
+<script src="./js/jquery.i18n.properties.js"></script>
+<script src="./js/language.js"></script>
+<script type="text/javascript">
+  var pageData = {
+    validatorAddress: '',
+    delegate_amount: 0,
+    balance: 0,
+    account: '',
+    lockupAccountId: '',
+    accountInfo: {},
+    masterAccountId: 'lockup.near',
+    accountObj: {
+      account: 0,
+      lockup: 0
+    },
+    hasLockup: false,
+    selectedAccount: 'account',
+    selectedAccountContent: '',
+    lockup: '',
+    lockupObj: {
+      balance: 0
+    },
+    provider: {},
+    gasBase: 25000000000000,
+    lockMethods: {
+      viewMethods: [
+        'get_balance',
+        'get_staking_pool_account_id',
+      ]
+    },
+    publicKey: '',
+    contractMethod: {},
+    lockDay: 2,
+    accountModal: false,
+    decimal: 24
+  };
+  $(function () {
+    var vue = new Vue({
+      el: '.mds-group',
+      data: pageData,
+      created() {
+        initLang();
+        this.validatorAddress = getQueryVariable('validator');
+        if (!this.validatorAddress) {
+          alert('error');
+          window.history.back();
+        }
+        this.initExtension();
+      },
+      mounted() {
+        // language js
+        initLang();
+      },
+      methods: {
+        // 全部委托
+        delegateAll: function () {
+          //需要处理本次交易的矿工费
+          this.delegate_amount = new BigNumber(this.accountObj[this.selectedAccount]).div(Math.pow(10, this.decimal)).minus(0.01).toFixed();
+        },
+        selectAccount(account) {
+          this.accountModal = false;
+          this.selectedAccount = account;
+          this.selectedAccountContent = account == 'account' ? this.account : this.lockupAccountEllipsis(this.lockupAccountId);
+        },
+        lockupAccountEllipsis(str){
+          if (String(str).length > 18) {
+            return String(str).replace(/(\w{5})(\w*)(\w{5})/g, "$1...$3")
+          }
+          return str;
+        },
+        successCallback(){
+          alert('Success');
+          window.location.href = "./index.html";
+        },
+        failCallback(error){
+          this.loading = false;
+          alert('Fail');
+          console.log(error);
+        },
+        async login() {
+          return await initNearApi().then(async (nearApi) => {
+            return await nearApi.login({}).then((account) => {
+              return account;
+            });
+          })
+        },
+        async accountExists(connection, accountId) {
+          try {
+            const account = new nearApi.Account(connection, accountId);
+            return await account.state();
+          } catch (error) {
+            if (!error.message.includes('does not exist while viewing')) {
+              throw error;
+            }
+            return false;
+          }
+        },
+        getAccount(account) {
+          return new nearApi.Account(window.near.connection, account)
+        },
+        // 获取nonce和blockhash
+        async getNonceAndBlockHash() {
+          const accessKeyResponse = await window.near.connection.provider.query(
+            `access_key/${this.account}/${this.publicKey}`,
+            ""
+          );
+          let blockHash = nearApi.utils.serialize.base_decode(
+            accessKeyResponse.block_hash
+          );
+          let nonce = accessKeyResponse.nonce;
+          return {blockHash, nonce};
+        },
+        // 获取contract
+        async getContractInstance(contractId, methods) {
+          let account = new nearApi.Account(window.near.connection, contractId);
+          return await new nearApi.Contract(account, contractId, methods);
+        },
+        // account账户staking
+        async accountStake(validator) {
+          let amount = nearApi.utils.format.parseNearAmount(this.delegate_amount);
+          let actions = [
+            nearApi.transactions.functionCall('deposit_and_stake', {amount}, this.gasBase * 5, amount)
+          ];
+
+          this.createAndSendTransaction(validator, actions).then((hash)=>{
+            if (hash){
+              this.loading = false;
+              this.successCallback();
+            }else{
+              this.failCallback(hash);
+            }
+          }).catch(e => {
+            this.failCallback(e);
+          })
+        },
+        // lockup账户staking
+        async lockupStake(validator) {
+          let amount = nearApi.utils.format.parseNearAmount(this.delegate_amount);
+          let actions = [
+            nearApi.transactions.functionCall('deposit_and_stake', {amount}, this.gasBase * 5, '0')
+          ];
+          this.getContractInstance(this.lockupAccountId, this.lockMethods).then(async (contract)=>{
+            let selectedValidatorId = await contract.get_staking_pool_account_id();
+            if (validator !== selectedValidatorId) {
+              await this.lockupSelect(validator, selectedValidatorId !== null);
+            }
+            this.createAndSendTransaction(this.lockupAccountId, actions).then((hash) => {
+              if (hash){
+                this.loading = false;
+                this.successCallback();
+              }else {
+                this.failCallback(hash);
+              }
+            }).catch(e => {
+              this.failCallback(e);
+            })
+          }).catch(e => {
+            this.failCallback(e);
+          })
+        },
+        // select staking pool
+        async lockupSelect(validatorId, unselect = false) {
+          let actions = [];
+          if (unselect) {
+            actions = [
+              nearApi.transactions.functionCall('unselect_staking_pool', {}, this.gasBase, '0')
+            ];
+            this.createAndSendTransaction(this.lockupAccountId, actions);
+          }
+          actions = [
+            nearApi.transactions.functionCall('select_staking_pool', {staking_pool_account_id: validatorId}, this.gasBase * 3, '0')
+          ];
+
+          this.createAndSendTransaction(this.lockupAccountId, actions);
+        },
+        // 创建交易
+        async createAndSendTransaction(receiverId, actions) {
+          let {blockHash, nonce} = await this.getNonceAndBlockHash();
+          let transaction = await nearApi.transactions.createTransaction(
+            this.account,
+            nearApi.utils.PublicKey.fromString(this.accountInfo.publicKey),
+            receiverId,
+            nonce + 1,
+            actions,
+            blockHash
+          );
+
+          const [
+            hash,
+            signedTransaction,
+          ] = await nearApi.transactions.signTransaction(
+            transaction,
+            window.nearWalletApi.signer,
+            this.account
+          );
+          // Send
+          const executionOutcome = await window.near.connection.provider.sendTransaction(
+            signedTransaction
+          );
+          return JSON.stringify(executionOutcome.transaction_outcome.id);
+        },
+        async initExtension() {
+          await this.login().then(async (account) => {
+            this.accountInfo = account;
+            this.account = this.selectedAccountContent = account.accountId;
+            this.publicKey = account.publicKey;
+            this.accountObj.accountId = this.account;
+            this.lockupAccountId = sha256(this.account).toString('hex').slice(0, 40) + '.' + this.masterAccountId;
+
+            this.lockupObj.accountId = this.lockupAccountId;
+            // 获取account余额
+            connectToPoolDetailsContract(this.account, this.lockupAccountId, ['get_balance', 'get_staking_pool_account_id'], []).then(async () => {
+
+              this.accountExists(window.near.connection, this.account).then((res) => {
+                if (res) {
+                  this.accountObj.account = res.amount;
+                }
+                this.accountExists(window.near.connection, this.lockupAccountId).then((result) => {
+                  this.loading = false
+                  if (result) {
+                    this.hasLockup = true;
+                    this.accountObj.lockup = result.amount;
+                  }
+                })
+              })
+            });
+          })
+        },
+        // 委托
+        delegate() {
+          if (!this.delegate_amount) {
+            alert('请输入委托数量');
+            return false;
+          }
+
+          if (this.delegate_amount-0 > this.accountObj[this.selectedAccount]) {
+            alert('可用余额不足');
+            return false;
+          }
+          this.loading = true;
+
+          if (this.selectedAccount == 'lockup') {
+            this.lockupStake(this.validatorAddress);
+          } else {
+            this.accountStake(this.validatorAddress);
+          }
+        }
+      }
+    });
+  });
+</script>
+</body>
+</html>

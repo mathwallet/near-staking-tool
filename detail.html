@@ -1,0 +1,180 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Stake Near</title>
+  <meta id="i18n_pagename" content="message">
+  <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <link rel="shortcut icon" type="image/x-icon" href="./img/favicon.ico" />
+  <link rel="stylesheet" type="text/css" href="./css/materialize.min.css">
+  <link rel="stylesheet" type="text/css" href="./css/common.css">
+  <script src="./js/jquery-3.2.1.min.js"></script>
+  <script src="./js/vue.min.js"></script>
+  <script src="./js/common.js"></script>
+  <script src='./js/sha256.min.js'></script>
+</head>
+<body>
+<div class="mds-group">
+  <link rel="stylesheet" type="text/css" href="./css/iris.css">
+  <section class="iris" v-cloak>
+    <ul class="top stake-top row">
+      <li class="col s6">
+        <p class="s-title i18n" data-properties="iris_delegated_amount" data-ptype="text"></p>
+        <!-- 委托量 -->
+        <p class="s-number">{{delegationAmount ? addCommas(delegationAmount) : 0}}</p>
+      </li>
+    </ul>
+    <div class="iris-info">
+      <ul class="card row iris-operation">
+        <li class="col s6">
+          <!-- 新增委托 -->
+          <a :href="'./add.html?validator='+validator">
+            <img src="./img/delegate@2x.png" width="16">
+            <span class="i18n" data-properties="iris_new_delegate" data-ptype="text"></span>
+          </a>
+          <!-- 解委托 -->
+          <a :href="'./unbond.html?validator='+validator+'&data='+lockup">
+            <img src="./img/unbond@2x.png" width="16">
+            <span class="i18n" data-properties="iris_undelegate" data-ptype="text"></span>
+          </a>
+        </li>
+      </ul>
+      <ul class="validator-intro">
+        <li class="clearfix">
+          <div class="left i18n" data-properties="iris_validator" data-ptype="text"></div>
+          <p>{{validatorDetail.account_id ? validatorDetail.account_id:''}}</p>
+        </li>
+        <li class="clearfix">
+          <div class="left i18n" data-properties="iris_stake_assets" data-ptype="text"></div>
+          <p>{{validatorDetail.total_staked_balance ? addCommas(validatorDetail.total_staked_balance) : 0}} NEAR</p>
+        </li>
+        <li class="clearfix">
+          <div class="left i18n" data-properties="iris_commission" data-ptype="text"></div>
+          <p>{{validatorDetail.reward_fee_fraction ? parseFloat(validatorDetail.reward_fee_fraction) : 0}} %</p>
+        </li>
+        <li class="clearfix website">
+          <div class="left i18n" data-properties="iris_website" data-ptype="text"></div>
+          <p>{{validatorDetail.url ? validatorDetail.url : ''}}</p>
+        </li>
+        <li class="clearfix">
+          <div class="left i18n" data-properties="iris_introduction" data-ptype="text"></div>
+          <p>{{validatorDetail.description ? validatorDetail.description : ''}}</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+</div>
+<script src="https://cdn.jsdelivr.net/gh/nearprotocol/near-api-js/dist/near-api-js.js"></script>
+<script src="./js/bignumber.min.js"></script>
+<script src="./js/jquery.i18n.properties.js"></script>
+<script src="./js/language.js"></script>
+<script type="text/javascript">
+  var pageData = {
+    account: '',
+    delegationAmount: 0,
+    validatorDetail: {},
+    reward: [],
+    masterAccountId: 'lockup.near',
+    nodeUrl: 'https://api-near.dokia.cloud',
+    validator: '',
+    lockup: '',
+    decimal: 24
+  };
+
+  $(function(){
+    var vue =new Vue({
+      el: '.mds-group',
+      data: pageData,
+      created () {
+        initLang();
+        this.validator = getQueryVariable('validator');
+        this.lockup = getQueryVariable('data');
+        if (!this.validator){
+          alert('Error');
+          window.history.back();
+        }
+        this.initExtension().then((res) => {
+          this.delegation = res;
+          connectToPoolDetailsContract(this.account, this.lockupAccountId).then(() => {
+            this.getValidator().then((validator) => {
+              this.validatorDetail = validator;
+              pageData.loading = false;
+              this.getValidatorInfo(validator.account_id);
+            });
+          })
+        })
+      },
+      mounted() {
+        // language js
+        initLang();
+      },
+      methods: {
+        async login() {
+          return await initNearApi().then(async (nearApi) => {
+            return await nearApi.login({}).then((account) => {
+              return account;
+            });
+          })
+        },
+        // 获取所有验证人
+        async getValidator() {
+          return await $.get(this.nodeUrl + '/api/v1/validators')
+            .then(list => {
+              let validatorDetail = list.filter((item) => {
+                return item.account_id == this.validator;
+              });
+              if (validatorDetail.length > 0) {
+                return validatorDetail[0];
+              }
+              return null;
+            });
+        },
+        getValidatorInfo(validatorAccount) {
+          window.pool_details.get_all_fields({"from_index": 0, "limit": 100}).then((data) => {
+            if (data && data[validatorAccount]) {
+              this.$set(this.validatorDetail, 'url', data[validatorAccount].url);
+              this.$set(this.validatorDetail, 'description', data[validatorAccount].description);
+            }
+          });
+        },
+        getAccount(accountId) {
+          return new nearApi.Account(walletConnection, accountId)
+        },
+        async initExtension() {
+          return await this.login().then(async (account) => {
+            this.accountDetail = account;
+            this.account = account.accountId;
+            this.lockupAccountId = sha256(this.account).toString('hex').slice(0, 40) + '.' + this.masterAccountId;
+            let acc = this.lockup == "true" ? this.lockupAccountId : this.account;
+            await this.getAccountDelegations(acc).then((res) => {
+              if (res) {
+                this.delegations = res.delegations;
+                let currentDeleg = res.delegations.filter((delegation) => {
+                  return delegation.validator_account_id == this.validator;
+                });
+                if (currentDeleg.length > 0) {
+                  this.delegationAmount = currentDeleg[0].staked_balance;
+                }
+              }
+            }).catch(err => {
+              console.log(err);
+            });
+          });
+        },
+        async getAccountDelegations(account) {
+          let url = 'https://api-near.dokia.cloud/api/v1/account/' + account;
+          return await $.get(url).then((result) => {
+            if (result) {
+              return result;
+            }
+          }).catch(() => {
+            return null;
+          })
+        }
+      }
+    });
+  });
+</script>
+</body>
+</html>

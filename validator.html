@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>验证人</title>
+  <meta id="i18n_pagename" content="message">
+  <meta name="viewport"
+        content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <link rel="shortcut icon" type="image/x-icon" href="./img/favicon.ico"/>
+  <link rel="stylesheet" type="text/css" href="./css/materialize.min.css">
+  <link rel="stylesheet" type="text/css" href="./css/common.css">
+  <script src="./js/jquery-3.2.1.min.js"></script>
+  <script src="./js/vue.min.js"></script>
+  <script src="./js/common.js"></script>
+</head>
+<body>
+<div class="mds-group">
+  <link rel="stylesheet" type="text/css" href="./css/iris.css">
+  <section class="iris validatorDetail" v-cloak>
+    <div class="top center-align">
+      <h4 class="title">{{validatorDetail.account_id ? validatorDetail.account_id: ''}}</h4>
+    </div>
+    <div class="iris-info">
+      <ul class="validator-intro card">
+        <li class="clearfix">
+          <div class="left i18n" data-properties="iris_stake_assets" data-ptype="text"></div>
+          <p>{{validatorDetail.total_staked_balance ? addCommas(validatorDetail.total_staked_balance) : 0}} NEAR</p>
+        </li>
+        <li class="clearfix">
+          <div class="left i18n" data-properties="iris_commission" data-ptype="text"></div>
+          <p>{{validatorDetail.reward_fee_fraction ? parseFloat(validatorDetail.reward_fee_fraction) : 0}}%</p>
+        </li>
+        <li class="clearfix website">
+          <div class="left i18n" data-properties="iris_website" data-ptype="text"></div>
+          <p>{{validatorDetail.url ? validatorDetail.url : ''}}</p>
+        </li>
+        <li class="clearfix">
+          <div class="left i18n" data-properties="iris_introduction" data-ptype="text"></div>
+          <p>{{validatorDetail.description ? validatorDetail.description : ''}}</p>
+        </li>
+      </ul>
+      <a :href="'./add.html?validator='+validator" class="iris-btn">
+        <span class="i18n" data-properties="iris_delegate" data-ptype="text"></span>
+        <span>{{validatorDetail.account_id}}</span>
+      </a>
+    </div>
+  </section>
+</div>
+<script src="./js/jquery.i18n.properties.js"></script>
+<script src="./js/language.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/nearprotocol/near-api-js/dist/near-api-js.js"></script>
+<script src='./js/bignumber.min.js'></script>
+<script type="text/javascript">
+  $(function () {
+    var pageData = {
+      operator_address: '',
+      commission: {},
+      delegator_shares: 0,
+      uptime: 0,
+      validatorDetail: {
+        url: '',
+        description: ''
+      },
+      url: 'https://api-near.dokia.cloud',
+      validator: '',
+      decimal: 24
+    };
+    var vue = new Vue({
+      el: '.mds-group',
+      data: pageData,
+      created() {
+        this.validator = getQueryVariable('validator');
+        if (!this.validator) {
+          alert('Error');
+          window.history.back();
+        }
+        initLang();
+      },
+      mounted() {
+        // language js
+        initLang();
+        this.getValidator().then((validator) => {
+          if (validator) {
+            this.validatorDetail = validator;
+            pageData.loading = false;
+            this.getValidatorInfo(validator.account_id);
+          }
+        })
+      },
+      methods: {
+        getValidatorInfo(validatorAccount) {
+          connectToPoolDetailsContract().then(() => {
+            window.pool_details.get_all_fields({"from_index": 0, "limit": 100}).then((data) => {
+              if (data && data[validatorAccount]) {
+                this.$set(this.validatorDetail, 'url', data[validatorAccount].url);
+                this.$set(this.validatorDetail, 'description', data[validatorAccount].description);
+              }
+            });
+          });
+        },
+        // 获取所有验证人
+        async getValidator() {
+          return await $.get(this.url + '/api/v1/validators')
+            .then(list => {
+              let validatorDetail = list.filter((item) => {
+                return item.account_id == this.validator;
+              });
+              if (validatorDetail.length > 0) {
+                return validatorDetail[0];
+              }
+              return null;
+            });
+        }
+      }
+    });
+  });
+</script>
+</body>
+</html>

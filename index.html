@@ -1,0 +1,328 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Stake Near</title>
+  <meta id="i18n_pagename" content="message">
+  <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <link rel="shortcut icon" type="image/x-icon" href="https://staticcdn1.maiziqianbao.net/img/favicon.ico" />
+  <link rel="stylesheet" type="text/css" href="./css/materialize.min.css">
+  <link rel="stylesheet" type="text/css" href="./css/common.css">
+  <script src="./js/jquery-3.2.1.min.js"></script>
+  <script src="./js/vue.min.js"></script>
+  <script src="./js/common.js"></script>
+  <script src='./js/sha256.min.js'></script>
+</head>
+<body>
+<div class="mds-group">
+  <link rel="stylesheet" type="text/css" href="./css/iris.css">
+  <section class="iris" v-cloak>
+    <ul class="top stake-top row">
+      <li class="col s6">
+        <p class="s-title i18n" data-properties="iris_delegated" data-ptype="text"></p>
+        <!-- 委托总量 -->
+        <p class="s-number">{{totalShare ? addCommas(totalShare) : 0}}</p>
+      </li>
+    </ul>
+    <div class="iris-info">
+      <ul class="card row iris-operation">
+        <li class="col s6">
+          <!-- 新增委托 -->
+          <a href="./list.html">
+            <img src="./img/delegate@2x.png" width="16">
+            <span class="i18n" data-properties="iris_new_delegate" data-ptype="text"></span>
+          </a>
+        </li>
+        </li>
+      </ul>
+      <div class="stake-list" v-if="delegations.length>0">
+        <!-- list -->
+        <a :href="'./detail.html?validator=' + item.validator_account_id+'&data=false'" class="card"
+           v-for="item in delegations">
+          <img src="./img/forward_grey@2x.png" width="20" class="right">
+          <h4>
+            <span class="i18n" data-properties="iris_delegate" data-ptype="text"></span>
+            <span>{{item.validator_account_id ? item.validator_account_id : ''}} ( Account )</span>
+          </h4>
+          <ul class="row">
+            <li class="col s6">
+              <p class="s-title i18n" data-properties="iris_delegated_amount" data-ptype="text"></p>
+              <p class="s-number">
+                <!-- 委托量 -->
+                {{addCommas(item.staked_balance)}}
+              </p>
+            </li>
+          </ul>
+          <div class="undelegating" v-if="item.unstaked_balance-0>minimumUnstaked">
+            <p class="s-number">
+              {{addCommas(item.unstaked_balance)}}
+            </p>
+            <p class="i18n unfreeze" style="background: rgb(255,59,47);" data-properties="unfreeze" data-ptype="text"
+               v-if="item.isAvailable" @click.prevent.self="withdraw(false, item.validator_account_id)"></p>
+            <p v-else class="i18n unfreeze" style="background: rgb(200,199,204);" data-properties="unfreeze"
+               data-ptype="text"></p>
+          </div>
+        </a>
+      </div>
+
+      <div class="stake-list" v-if="lockupDelegations.length>0">
+        <!-- list -->
+        <a :href="'./delegate?act=detail&validator=' + item.validator_account_id+'&data=true'" class="card"
+           v-for="item in lockupDelegations">
+          <img src="./img/forward_grey@2x.png" width="20" class="right">
+          <h4>
+            <span class="i18n" data-properties="iris_delegate" data-ptype="text"></span>
+            <span>{{item.validator_account_id ? item.validator_account_id : ''}} ( Lockup )</span>
+          </h4>
+          <ul class="row">
+            <li class="col s6">
+              <p class="s-title i18n" data-properties="iris_delegated_amount" data-ptype="text"></p>
+              <p class="s-number">
+                <!-- 委托量 -->
+                {{addCommas(item.staked_balance)}}
+              </p>
+            </li>
+            <li class="col s6">
+              <p class="s-title i18n" data-properties="btc_trade_income" data-ptype="text"></p>
+              <p class="s-number">
+                <!-- 当前收益 -->
+                {{item.unclaimed ? addCommas(item.unclaimed) : 0}}
+              </p>
+            </li>
+          </ul>
+          <div class="undelegating" v-if="item.unstaked_balance-0>minimumUnstaked">
+            <p class="s-number">
+              {{addCommas(item.unstaked_balance)}}
+            </p>
+            <p class="i18n unfreeze" style="background: rgb(255,59,47);" data-properties="unfreeze" data-ptype="text"
+               v-if="item.isAvailable" @click.prevent.self="withdraw(true)"></p>
+            <p v-else class="i18n unfreeze" style="background: rgb(200,199,204);" data-properties="unfreeze"
+               data-ptype="text"></p>
+          </div>
+        </a>
+      </div>
+      <div v-if="!delegations && !lockupDelegations" class="list-none">
+        <img src="./img/arrow_grey@2x.png" width="80">
+        <p class="i18n" data-properties="iris_list_null" data-ptype="text"></p>
+      </div>
+    </div>
+  </section>
+</div>
+<script src="https://cdn.jsdelivr.net/gh/nearprotocol/near-api-js/dist/near-api-js.js"></script>
+<script src="./js/bignumber.min.js"></script>
+<script src="./js/jquery.i18n.properties.js"></script>
+<script src="./js/language.js"></script>
+<script type="text/javascript">
+  var pageData = {
+    totalShare: 0,
+    account: '',
+    lockupAccountId: '',
+    masterAccountId: 'lockup.near',
+    nodeUrl: 'https://rpc.mainnet.near.org',
+    provider: {},
+    delegations: [],
+    lockupDelegations: [],
+    unbondings: [],
+    onlyUnbondings: [],
+    withdrawable: false,
+    minimumUnstaked: 10,
+    stakingMethods: {
+      viewMethods: [
+        'get_account_total_balance',
+        'is_account_unstaked_balance_available',
+        'get_reward_fee_fraction',
+      ]
+    },
+    lockMethods: {
+      viewMethods: [
+        'get_known_deposited_balance'
+      ]
+    },
+    deposited: 0,
+    publicKey: '',
+    gasBase: 25000000000000,
+    decimal: 24
+  };
+  $(function(){
+    var vue =new Vue({
+      el: '.mds-group',
+      data: pageData,
+      created () {
+        initLang();
+        this.initExtension();
+      },
+      mounted() {
+        // language js
+        initLang();
+      },
+      methods: {
+        // 插件登录
+        async login() {
+          return await initNearApi().then(async (nearApi) => {
+            return await nearApi.login({}).then((account) => {
+              return account;
+            });
+          })
+        },
+        // 获取contract
+        async getContractInstance(contractId, methods) {
+          let account = new nearApi.Account(window.near.connection, contractId);
+          return await new nearApi.Contract(account, contractId, methods);
+        },
+        getLockAccountId(account) {
+          return sha256(account).toString('hex').slice(0, 40) + '.' + this.masterAccountId;
+        },
+        async initExtension() {
+          return await this.login().then(async (account) => {
+            connectToPoolDetailsContract().then(async () => {
+              this.account = account.accountId;
+              this.publicKey = account.publicKey;
+              this.lockupAccountId = this.getLockAccountId(this.account);
+              // account账户
+              await this.getAccountDelegations(this.account).then((res) => {
+                if (res && res.delegations && res.delegations.length > 0) {
+                  let account_id = this.account;
+                  this.delegations = res.delegations;
+                  this.delegations.forEach((delegation) => {
+                    this.getContractInstance(delegation.validator_account_id, this.stakingMethods).then(async (validatorContract) => {
+                      let total = await validatorContract.get_account_total_balance({account_id});
+                      if (parseFloat(total) > 0) {
+                        // restake到账户的奖励
+                        this.$set(delegation, 'isAvailable', false);
+                        if (delegation.unstaked_balance - 0 > this.minimumUnstaked) {
+                          let isAvailable = await validatorContract.is_account_unstaked_balance_available({account_id});
+                          this.$set(delegation, 'isAvailable', isAvailable);
+                        }
+                      }
+                    });
+                    this.totalShare = new BigNumber(this.totalShare).plus(delegation.staked_balance).toFixed();
+                  });
+                }
+              }).catch(err => {
+                console.log(err);
+              });
+              // lockup 账户
+              await this.getAccountDelegations(this.lockupAccountId).then((result) => {
+                if (result && result.delegations && result.delegations.length > 0) {
+                  this.getContractInstance(this.lockupAccountId, this.lockMethods).then(async (contract) => {
+                    // 委托数量
+                    this.deposited = await contract.get_known_deposited_balance();
+                    let account_id = this.lockupAccountId;
+                    this.lockupDelegations = result.delegations;
+                    this.lockupDelegations.forEach((lockDelegation) => {
+                      this.getContractInstance(lockDelegation.validator_account_id, this.stakingMethods).then(async (validatorContractLock) => {
+                        let total = await validatorContractLock.get_account_total_balance({account_id});
+                        if (parseFloat(total) > 0) {
+                          // restake到账户的奖励
+                          lockDelegation.unclaimed = new BigNumber(total).minus(this.deposited).toString();
+                          this.$set(lockDelegation, 'isAvailable', false);
+                          if (lockDelegation.unstaked_balance - 0 > this.minimumUnstaked) {
+                            let isAvailable = await validatorContractLock.is_account_unstaked_balance_available({account_id});
+                            this.$set(lockDelegation, 'isAvailable', isAvailable);
+                          }
+                        }
+                      });
+                      // this.lockupDelegations.push(lockDelegation);
+                      this.totalShare = new BigNumber(this.totalShare).plus(lockDelegation.staked_balance).toFixed();
+                    });
+                  });
+                }
+              });
+              this.loading = false;
+            }).catch(err => {
+              console.log(err);
+            });
+            return true
+          });
+        },
+        async getAccountDelegations(account) {
+          let url = 'https://api-near.dokia.cloud/api/v1/account/' + account;
+          return await $.get(url).then((result) => {
+            if (result) {
+              return result;
+            }
+          }).catch(() => {
+            return null;
+          })
+        },
+        async createAndSendTransaction(receiverId, actions) {
+          let {blockHash, nonce} = await this.getNonceAndBlockHash();
+          let transaction = await nearApi.transactions.createTransaction(
+            this.account,
+            nearApi.utils.PublicKey.fromString(this.publicKey),
+            receiverId,
+            nonce + 1,
+            actions,
+            blockHash
+          );
+          const [
+            hash,
+            signedTransaction,
+          ] = await nearApi.transactions.signTransaction(
+            transaction,
+            window.nearWalletApi.signer,
+            this.account
+          );
+          // Send
+          const executionOutcome = await window.near.connection.provider.sendTransaction(
+            signedTransaction
+          );
+          return JSON.stringify(executionOutcome.transaction_outcome.id);
+        },
+        // 获取nonce和blockhash
+        async getNonceAndBlockHash() {
+          const accessKeyResponse = await window.near.connection.provider.query(
+            `access_key/${this.account}/${this.publicKey}`,
+            ""
+          );
+          let blockHash = nearApi.utils.serialize.base_decode(
+            accessKeyResponse.block_hash
+          );
+          let nonce = accessKeyResponse.nonce;
+          return {blockHash, nonce};
+        },
+        withdraw(isLockup, receiverId = '') {
+          this.loading = true;
+          // 提现
+          if (isLockup) {
+            let actions = [
+              nearApi.transactions.functionCall('withdraw_all_from_staking_pool', {}, this.gasBase * 7, '0')
+            ];
+            this.createAndSendTransaction(this.lockupAccountId, actions).then((hash) => {
+              if (hash) {
+                this.loading = false;
+                console.log(hash);
+                alert('<?=UtilLang::getText("submitted", UtilApp::getLanguage())?>');
+                window.location.reload();
+              }
+            }).catch(e => {
+              this.loading = false;
+              alert('<?=UtilLang::getText("Failed", UtilApp::getLanguage())?>');
+              console.log(e);
+            })
+          } else if (receiverId) {
+            let actions = [
+              nearApi.transactions.functionCall('withdraw_all', {}, this.gasBase * 7, '0')
+            ];
+            this.createAndSendTransaction(receiverId, actions).then((hash) => {
+              if (hash) {
+                this.loading = false;
+                console.log(hash);
+                alert('已提交');
+                window.location.reload();
+              }
+
+            }).catch(e => {
+              this.loading = false;
+              alert('失败');
+              console.log(e);
+            })
+          }
+        }
+      }
+    });
+  })
+</script>
+</body>
+</html>

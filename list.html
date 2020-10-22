@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>选择验证人</title>
+  <meta id="i18n_pagename" content="message">
+  <meta name="viewport"
+        content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <link rel="shortcut icon" type="image/x-icon" href="./img/favicon.ico"/>
+  <link rel="stylesheet" type="text/css" href="./css/materialize.min.css">
+  <link rel="stylesheet" type="text/css" href="./css/common.css">
+  <script src="./js/jquery-3.2.1.min.js"></script>
+  <script src="./js/vue.min.js"></script>
+  <script src="./js/common.js"></script>
+</head>
+<body>
+<div class="mds-group">
+  <link rel="stylesheet" type="text/css" href="./css/iris.css">
+  <section class="iris" v-cloak>
+    <div class="iris-info validators">
+      <input class="search" type="text" v-model="searchKey" placeholder="Search...">
+      <div class="stake-list" v-if="stakeList.length>0">
+        <a :href="'./validator.html?validator='+item.account_id" class="card" v-for="item in stakeList"
+           v-if="compareKey(item.account_id)">
+          <img src="./img/forward_grey@2x.png" width="20" class="right">
+          <h4>
+            <span class="validator">{{item.account_id}}</span>
+            <span :class="item.epoch">{{item.epoch.toUpperCase()}}</span>
+          </h4>
+          <ul>
+            <li class="row">
+              <p class="s-title col s4 i18n" data-properties="iris_stake_assets" data-ptype="text"></p>
+              <p class="col s8">
+                <!-- 受委托资产 -->
+                {{addCommas(item.total_staked_balance)}} NEAR
+              </p>
+            </li>
+            <li class="row">
+              <p class="s-title col s4 i18n" data-properties="iris_commission" data-ptype="text"></p>
+              <p class="col s8">
+                <!-- 佣金 -->
+                {{parseFloat(item.reward_fee_fraction)}}%
+              </p>
+            </li>
+          </ul>
+        </a>
+      </div>
+    </div>
+  </section>
+</div>
+<script src="https://cdn.jsdelivr.net/gh/nearprotocol/near-api-js/dist/near-api-js.js"></script>
+<script src='./js/bignumber.min.js'></script>
+<script src="./js/jquery.i18n.properties.js"></script>
+<script src="./js/language.js"></script>
+<script type="text/javascript">
+  $(function () {
+    var pageData = {
+      stakeList: [],
+      searchKey: "",
+      url: 'https://api-near.dokia.cloud'
+    };
+    var vue = new Vue({
+      el: '.mds-group',
+      data: pageData,
+      created() {
+        initLang();
+        this.getValidatorList().then((list) => {
+          this.loading = false;
+          pageData.stakeList = list;
+        });
+      },
+      mounted() {
+        // language js
+        initLang();
+      },
+      methods: {
+        compareKey: function (value) {
+          if (this.searchKey) {
+            return value.toLowerCase().indexOf(this.searchKey.toLowerCase()) != -1;
+          } else {
+            return true;
+          }
+        },
+        // 倒序排序
+        compare(property) {
+          return function (a, b) {
+            var value1 = new BigNumber(a[property]);
+            var value2 = new BigNumber(b[property]);
+            return value2.minus(value1)
+          };
+        },
+        // 获取验证人
+        async getValidatorList() {
+          return await $.get(this.url + '/api/v1/validators')
+            .then(list => {
+              return list;
+            });
+        }
+      }
+    });
+  });
+</script>
+</body>
+</html>
